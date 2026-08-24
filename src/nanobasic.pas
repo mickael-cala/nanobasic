@@ -6,7 +6,7 @@ uses
   SysUtils, Classes, NanoTypes, NanoLexer, NanoParser, NanoVM;
 
 const
-  NANOBASIC_VERSION = '1.0.0-alpha';
+  NANOBASIC_VERSION = '1.0.0-beta2';
 
 type
   TProgramLine = record
@@ -46,7 +46,7 @@ begin
   end;
 end;
 
-function RunCodeBuffer(const src: PChar; keepEnv: Boolean): Integer;
+function RunCodeBuffer(const src: PChar; keepEnv, checkOnly: Boolean): Integer;
 var
   localArena: TArena;
   localSym: TSymTab;
@@ -77,12 +77,22 @@ begin
 
   if P.error <> 0 then
   begin
-    WriteLn(ErrOutput, P.errmsg);
+    format_error_context(@P);
     if not keepEnv then
       arena_free_all(targetArena);
     SetLength(P.stmts, 0);
     SetLength(P.labels.entries, 0);
     Exit(1);
+  end;
+
+  if checkOnly then
+  begin
+    WriteLn('Syntaxe et cibles de saut validees avec succes (', Length(P.stmts), ' instructions).');
+    if not keepEnv then
+      arena_free_all(targetArena);
+    SetLength(P.stmts, 0);
+    SetLength(P.labels.entries, 0);
+    Exit(0);
   end;
 
   vm_init(vm, targetSym, P.stmts, @P.labels);
@@ -97,9 +107,6 @@ begin
   Result := 0;
 end;
 
-(* ============================================================
-   GESTION DU BUFFER PROGRAMME EN MEMOIRE
-   ============================================================ *)
 procedure BufInsertOrUpdate(var buf: TProgramBuffer; lineno: Integer; const codeText: string);
 var
   i, count, insertIdx: Integer;
@@ -224,6 +231,7 @@ begin
   end;
 
   BufClear(buf);
+  ResetGlobalEnv;
   buf.filename := fn;
 
   while not EOF(f) do
@@ -292,15 +300,28 @@ begin
   WriteLn('Sauvegarde reussie dans : ', fn);
 end;
 
-procedure CmdHelp;
+procedure PrintCLIHelp;
+begin
+  WriteLn('Usage: nanobasic [options] [fichier.bas]');
+  WriteLn('');
+  WriteLn('Options :');
+  WriteLn('  -c, --check    Valide la syntaxe et les sauts sans executer (mode Dry-Run / Linter)');
+  WriteLn('  -v, --version  Affiche la version de NanoBasic');
+  WriteLn('  -h, --help     Affiche cette aide');
+  WriteLn('');
+  WriteLn('Sans argument : Lance le terminal interactif REPL.');
+end;
+
+procedure CmdReplHelp;
 begin
   WriteLn('=== NanoBasic v', NANOBASIC_VERSION, ' ===');
   WriteLn('Commandes REPL disponibles :');
   WriteLn('  DIR                : Liste les scripts .bas du dossier');
   WriteLn('  LOAD <fichier>     : Charge un script .bas en memoire');
-  WriteLn('  SAVE [fichier]     : Sauvegarde le buffer (defaut: nom actuel ou untitled.bas)');
+  WriteLn('  SAVE [fichier]     : Sauvegarde le buffer');
   WriteLn('  LIST               : Affiche le code en memoire');
   WriteLn('  RUN                : Execute le programme stocke en memoire');
+  WriteLn('  CHECK              : Valide la syntaxe du buffer sans execution');
   WriteLn('  NEW                : Efface le programme en memoire');
   WriteLn('  CLEAR              : Reinitialise toutes les variables');
   WriteLn('  CLS                : Efface l''ecran console');
@@ -314,17 +335,9 @@ end;
 
 procedure CmdCls;
 begin
-  {$IFDEF WINDOWS}
-  // Code ANSI supporté par les consoles Windows modernes ou fallback
   Write(#27'[2J'#27'[H');
-  {$ELSE}
-  Write(#27'[2J'#27'[H');
-  {$ENDIF}
 end;
 
-(* ============================================================
-   BOUCLE PRINCIPALE DU REPL
-   ============================================================ *)
 procedure run_repl;
 var
   inputLine, cmd, arg, src: string;
@@ -360,7 +373,7 @@ begin
     if (cmd = 'EXIT') or (cmd = 'QUIT') then
       Break
     else if cmd = 'HELP' then
-      CmdHelp
+      CmdReplHelp
     else if cmd = 'DIR' then
       CmdDir
     else if cmd = 'LOAD' then
@@ -369,6 +382,16 @@ begin
       CmdSave(progBuf, arg)
     else if cmd = 'LIST' then
       BufList(progBuf)
+    else if cmd = 'CHECK' then
+    begin
+      if Length(progBuf.lines) = 0 then
+        WriteLn(ErrOutput, 'Erreur: Aucun programme en memoire')
+      else
+      begin
+        src := BufToSource(progBuf);
+        RunCodeBuffer(PChar(src), False, True);
+      end;
+    end
     else if cmd = 'NEW' then
     begin
       BufClear(progBuf);
@@ -389,7 +412,7 @@ begin
       else
       begin
         src := BufToSource(progBuf);
-        RunCodeBuffer(PChar(src), False);
+        RunCodeBuffer(PChar(src), False, False);
       end;
     end
     else
@@ -400,7 +423,7 @@ begin
       else
       begin
         src := inputLine + LineEnding;
-        RunCodeBuffer(PChar(src), True);
+        RunCodeBuffer(PChar(src), True, False);
       end;
     end;
   end;
@@ -411,7 +434,9 @@ end;
 
 var
   f: TextFile;
-  srcBuf, lineBuf: string;
+  srcBuf, lineBuf, arg, targetFile: string;
+  checkOnly: Boolean;
+  i: Integer;
 begin
   if ParamCount < 1 then
   begin
@@ -419,19 +444,58 @@ begin
     Halt(0);
   end;
 
-  if not FileExists(ParamStr(1)) then
+  checkOnly := False;
+  targetFile := '';
+
+  for i := 1 to ParamCount do
   begin
-    WriteLn(ErrOutput, 'Fichier introuvable: ', ParamStr(1));
+    arg := ParamStr(i);
+    if (arg = '-v') or (arg = '--version') then
+    begin
+      WriteLn('NanoBasic v', NANOBASIC_VERSION);
+      WriteLn('Architecture: Free Pascal / AST Tree-Walk Engine');
+      Halt(0);
+    end
+    else if (arg = '-h') or (arg = '--help') then
+    begin
+      PrintCLIHelp;
+      Halt(0);
+    end
+    else if (arg = '-c') or (arg = '--check') then
+    begin
+      checkOnly := True;
+    end
+    else
+    begin
+      targetFile := arg;
+    end;
+  end;
+
+  if targetFile = '' then
+  begin
+    WriteLn(ErrOutput, 'Erreur: Aucun fichier specifie.');
+    PrintCLIHelp;
     Halt(1);
   end;
 
-  AssignFile(f, ParamStr(1));
+  if not FileExists(targetFile) then
+  begin
+    if FileExists(targetFile + '.bas') then
+      targetFile := targetFile + '.bas'
+    else
+    begin
+      WriteLn(ErrOutput, 'Fichier introuvable: ', targetFile);
+      Halt(1);
+    end;
+  end;
+
+  AssignFile(f, targetFile);
   {$I-}
   Reset(f);
   {$I+}
   if IOResult <> 0 then
   begin
-    WriteLn(ErrOutput, 'Impossible de lire le fichier: ', ParamStr(1));
+    WriteLn(ErrOutput, 'Impossible de lire le fichier: ', targetFile);
     Halt(1);
   end;
 
@@ -443,5 +507,5 @@ begin
   end;
   CloseFile(f);
 
-  Halt(RunCodeBuffer(PChar(srcBuf), False));
+  Halt(RunCodeBuffer(PChar(srcBuf), False, checkOnly));
 end.

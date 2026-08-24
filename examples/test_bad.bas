@@ -1,0 +1,3 @@
+10 LET X = 10
+20 PRINT X + * 5
+30 END

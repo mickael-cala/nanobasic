@@ -1,0 +1,15 @@
+PRINT "=== TEST 1: SANS NUMERO DE LIGNE ==="
+LET X = 10 : LET Y = 20 : PRINT "X + Y = " : PRINT X + Y
+
+PRINT "=== TEST 2: MULTI-INSTRUCTIONS ET GOTO ==="
+GOTO 100
+
+PRINT "ERREUR : Ce message ne doit pas apparaitre"
+
+100 LET MSG$ = "Saut vers 100 reussi !" : PRINT MSG$
+
+PRINT "=== TEST 3: BOUCLE FOR EN LIGNE UNIQUE ==="
+FOR I = 1 TO 3 : PRINT "Tour #", : PRINT I : NEXT I
+
+PRINT "=== FIN DES TESTS ETAPE 1 ==="
+END

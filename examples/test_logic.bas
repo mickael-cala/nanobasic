@@ -1,0 +1,36 @@
+PRINT "=== 1. TEST OPERATEURS BOOLEENS ==="
+LET B1 = TRUE
+LET B2 = FALSE
+
+PRINT "TRUE AND FALSE = "; B1 AND B2
+PRINT "TRUE OR FALSE  = "; B1 OR B2
+PRINT "TRUE XOR FALSE = "; B1 XOR B2
+PRINT "NOT FALSE      = "; NOT B2
+
+PRINT "=== 2. TEST CONDITIONS COMPLEXES DANS IF ==="
+LET AGE = 25
+LET PERMIS = TRUE
+
+IF (AGE >= 18) AND PERMIS THEN
+  PRINT "Eligible a la conduite : OUI"
+ELSE
+  PRINT "Eligible a la conduite : NON"
+END IF
+
+IF (AGE < 18) OR (NOT PERMIS) THEN
+  PRINT "Erreur : ceci ne doit pas s'afficher"
+ELSE
+  PRINT "Verification double condition OK"
+END IF
+
+PRINT "=== 3. TEST OPERATEURS BITWISE SUR ENTIERS ==="
+LET MASK1 = 12   ' Binaire: 1100
+LET MASK2 = 10   ' Binaire: 1010
+
+PRINT "12 AND 10 = "; MASK1 AND MASK2    ' Attendu: 8  (1000)
+PRINT "12 OR 10  = "; MASK1 OR MASK2     ' Attendu: 14 (1110)
+PRINT "12 XOR 10 = "; MASK1 XOR MASK2    ' Attendu: 6  (0110)
+PRINT "NOT 0     = "; NOT 0              ' Attendu: -1
+
+PRINT "=== FIN DU TEST LOGIQUE ET BITWISE ==="
+END
