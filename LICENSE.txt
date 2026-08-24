@@ -1,0 +1,28 @@
+
+                    GNU AFFERO GENERAL PUBLIC LICENSE
+                       Version 3, 19 November 2007
+
+ Copyright (C) 2007 Free Software Foundation, Inc. <https://fsf.org/>
+ Everyone is permitted to copy and distribute verbatim copies
+ of this license document, but changing it is not allowed.
+
+[Le texte intégral de la licence AGPL v3 doit être inséré ici. 
+Pour économiser de la place, je ne le recopie pas intégralement, 
+mais vous devez le copier depuis https://www.gnu.org/licenses/agpl-3.0.txt]
+
+---
+
+## Double licence – Option commerciale
+
+En plus de la licence AGPL v3, l'auteur (Mickaël Cala) propose une licence commerciale pour les organisations ou les cas d'usage qui ne souhaitent pas être soumis aux obligations de l'AGPL (notamment la divulgation du code source modifié lors d'une utilisation en réseau).
+
+Cette licence commerciale permet :
+- L'utilisation du logiciel dans des applications propriétaires ou internes.
+- La redistribution sans obligation de fournir le code source.
+- Un support et des mises à jour prioritaires (optionnels).
+
+Pour obtenir des informations sur les tarifs et les conditions, veuillez contacter l'auteur via son profil GitHub.
+
+---
+
+**Remarque** : Par défaut, tout contributeur au projet accepte que son code soit distribué sous cette double licence (AGPL + commerciale). Si vous ne souhaitez pas cela, veuillez ne pas contribuer.
