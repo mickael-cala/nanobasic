@@ -11,14 +11,16 @@ const
   SYM_CAP = 256;
 
 type
-  VType = (T_NIL, T_NUM, T_STR);
+  VType = (T_NIL, T_NUM, T_INT, T_STR, T_BOOL);
 
   PValue = ^Value;
   Value = record
     case t: VType of
-      T_NUM: (n: Double);
-      T_STR: (s: PChar);
-      T_NIL: ();
+      T_NUM:  (n: Double);
+      T_INT:  (i: Int64);
+      T_STR:  (s: PChar);
+      T_BOOL: (b: Boolean);
+      T_NIL:  ();
   end;
 
   (* --- Allocateur d'Arène --- *)
@@ -51,10 +53,10 @@ type
 
   (* --- Tokens --- *)
   Tok = (
-    T_EOF, T_NUM_L, T_STR_L, T_ID,
+    T_EOF, T_NUM_L, T_INT_L, T_STR_L, T_ID,
     T_PLUS, T_MINUS, T_STAR, T_SLASH, T_CARET,
     T_EQ, T_NEQ, T_LT, T_GT, T_LTE, T_GTE,
-    T_LPAREN, T_RPAREN, T_COMMA, T_COLON,
+    T_LPAREN, T_RPAREN, T_COMMA, T_SEMI, T_COLON,
     T_PRINT, T_LET, T_IF, T_THEN, T_ELSE,
     T_GOTO, T_GOSUB, T_RETURN,
     T_FOR, T_TO, T_STEP, T_NEXT,
@@ -63,16 +65,24 @@ type
 
   (* --- Arbre Syntaxique Abstrait (AST) --- *)
   NodeKind = (
-    N_NUM, N_STR, N_VAR, N_BINOP, N_UNOP,
+    N_NUM, N_INT, N_STR, N_BOOL, N_VAR, N_BINOP, N_UNOP,
     N_PRINT, N_LET, N_IF, N_GOTO, N_GOSUB, N_RETURN,
     N_FOR, N_NEXT, N_INPUT, N_REM, N_END
   );
 
   PNode = ^TNode;
+
+  TPrintArg = record
+    expr: PNode;
+    sep: Tok; // T_COMMA ou T_SEMI ou T_EOF (aucun)
+  end;
+
   TNode = record
     k: NodeKind;
     source_line: Integer;
     num: Double;
+    int_val: Int64;
+    bool_val: Boolean;
     str: PChar;
     name: PChar;
     bin_op: Tok;
@@ -80,8 +90,8 @@ type
     bin_r: PNode;
     un_op: Char;
     un_child: PNode;
-    print_expr: PNode;
-    print_semi: Integer;
+    print_args: array of TPrintArg;
+    print_trailing_sep: Boolean;
     let_name: PChar;
     let_expr: PNode;
     if_cond: PNode;
@@ -93,6 +103,7 @@ type
     for_to: PNode;
     for_step: PNode;
     next_var: PChar;
+    input_prompt: PChar;
     input_name: PChar;
   end;
 
@@ -108,8 +119,14 @@ type
   end;
 
 function MakeNum(val: Double): Value; inline;
+function MakeInt(val: Int64): Value; inline;
+function MakeBool(val: Boolean): Value; inline;
 function MakeStr(val: PChar): Value; inline;
 function MakeNil: Value; inline;
+
+function to_bool(const v: Value): Boolean; inline;
+function to_int(const v: Value): Int64; inline;
+function to_num(const v: Value): Double; inline;
 
 function arena_alloc(a: PArena; n: SizeInt): Pointer;
 function arena_strdup(a: PArena; const s: PChar): PChar;
@@ -129,6 +146,18 @@ begin
   Result.n := val;
 end;
 
+function MakeInt(val: Int64): Value; inline;
+begin
+  Result.t := T_INT;
+  Result.i := val;
+end;
+
+function MakeBool(val: Boolean): Value; inline;
+begin
+  Result.t := T_BOOL;
+  Result.b := val;
+end;
+
 function MakeStr(val: PChar): Value; inline;
 begin
   Result.t := T_STR;
@@ -139,6 +168,42 @@ function MakeNil: Value; inline;
 begin
   Result.t := T_NIL;
   Result.n := 0.0;
+end;
+
+function to_bool(const v: Value): Boolean; inline;
+begin
+  case v.t of
+    T_BOOL: Result := v.b;
+    T_INT:  Result := (v.i <> 0);
+    T_NUM:  Result := (v.n <> 0.0);
+    T_STR:  Result := (v.s <> nil) and (v.s^ <> #0);
+  else
+    Result := False;
+  end;
+end;
+
+function to_int(const v: Value): Int64; inline;
+begin
+  case v.t of
+    T_INT:  Result := v.i;
+    T_NUM:  Result := Trunc(v.n);
+    T_BOOL: Result := Ord(v.b);
+    T_STR:  Result := StrToInt64Def(string(v.s), 0);
+  else
+    Result := 0;
+  end;
+end;
+
+function to_num(const v: Value): Double; inline;
+begin
+  case v.t of
+    T_NUM:  Result := v.n;
+    T_INT:  Result := v.i;
+    T_BOOL: Result := Ord(v.b);
+    T_STR:  Result := StrToFloatDef(string(v.s), 0.0);
+  else
+    Result := 0.0;
+  end;
 end;
 
 function arena_alloc(a: PArena; n: SizeInt): Pointer;

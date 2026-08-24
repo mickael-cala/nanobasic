@@ -62,6 +62,13 @@ var
   n: PNode;
 begin
   case P^.L.tok of
+    T_INT_L:
+      begin
+        n := node_new(P, N_INT);
+        n^.int_val := P^.L.int_val;
+        lex_next(P^.L);
+        Exit(n);
+      end;
     T_NUM_L:
       begin
         n := node_new(P, N_NUM);
@@ -78,6 +85,21 @@ begin
       end;
     T_ID:
       begin
+        if StrComp(P^.L.id, 'TRUE') = 0 then
+        begin
+          n := node_new(P, N_BOOL);
+          n^.bool_val := True;
+          lex_next(P^.L);
+          Exit(n);
+        end
+        else if StrComp(P^.L.id, 'FALSE') = 0 then
+        begin
+          n := node_new(P, N_BOOL);
+          n^.bool_val := False;
+          lex_next(P^.L);
+          Exit(n);
+        end;
+
         n := node_new(P, N_VAR);
         n^.name := arena_strdup(P^.a, P^.L.id);
         lex_next(P^.L);
@@ -95,8 +117,8 @@ begin
       end;
     else
       parse_error(P, 'Expression attendue');
-      n := node_new(P, N_NUM);
-      n^.num := 0.0;
+      n := node_new(P, N_INT);
+      n^.int_val := 0;
       Exit(n);
   end;
 end;
@@ -164,21 +186,41 @@ function parse_stmt(P: PParserr): PNode;
 var
   n: PNode;
   name: PChar;
+  argCount: Integer;
+  exprNode: PNode;
+  sepTok: Tok;
 begin
   case P^.L.tok of
     T_PRINT:
       begin
         lex_next(P^.L);
         n := node_new(P, N_PRINT);
-        if (P^.L.tok = T_NEWLINE) or (P^.L.tok = T_EOF) or (P^.L.tok = T_COLON) or (P^.L.tok = T_ELSE) then
+        n^.print_trailing_sep := False;
+
+        while not (P^.L.tok in [T_NEWLINE, T_EOF, T_COLON, T_ELSE]) and (P^.error = 0) do
         begin
-          n^.print_expr := nil;
-          Exit(n);
+          exprNode := parse_expr(P);
+          sepTok := T_EOF;
+
+          if P^.L.tok in [T_SEMI, T_COMMA] then
+          begin
+            sepTok := P^.L.tok;
+            lex_next(P^.L);
+          end;
+
+          argCount := Length(n^.print_args);
+          SetLength(n^.print_args, argCount + 1);
+          n^.print_args[argCount].expr := exprNode;
+          n^.print_args[argCount].sep := sepTok;
+
+          if sepTok in [T_SEMI, T_COMMA] then
+            n^.print_trailing_sep := True
+          else
+          begin
+            n^.print_trailing_sep := False;
+            Break;
+          end;
         end;
-        n^.print_expr := parse_expr(P);
-        n^.print_semi := Ord(P^.L.tok = T_COMMA);
-        if n^.print_semi <> 0 then
-          lex_next(P^.L);
         Exit(n);
       end;
 
@@ -227,11 +269,14 @@ begin
       begin
         lex_next(P^.L);
         n := node_new(P, N_GOTO);
-        if P^.L.tok <> T_NUM_L then
+        if not (P^.L.tok in [T_NUM_L, T_INT_L]) then
           parse_error(P, 'Numero de ligne attendu pour GOTO')
         else
         begin
-          n^.goto_target := Round(P^.L.num);
+          if P^.L.tok = T_INT_L then
+            n^.goto_target := P^.L.int_val
+          else
+            n^.goto_target := Round(P^.L.num);
           lex_next(P^.L);
         end;
         Exit(n);
@@ -241,11 +286,14 @@ begin
       begin
         lex_next(P^.L);
         n := node_new(P, N_GOSUB);
-        if P^.L.tok <> T_NUM_L then
+        if not (P^.L.tok in [T_NUM_L, T_INT_L]) then
           parse_error(P, 'Numero de ligne attendu pour GOSUB')
         else
         begin
-          n^.goto_target := Round(P^.L.num);
+          if P^.L.tok = T_INT_L then
+            n^.goto_target := P^.L.int_val
+          else
+            n^.goto_target := Round(P^.L.num);
           lex_next(P^.L);
         end;
         Exit(n);
@@ -285,8 +333,8 @@ begin
         end
         else
         begin
-          n^.for_step := node_new(P, N_NUM);
-          n^.for_step^.num := 1.0;
+          n^.for_step := node_new(P, N_INT);
+          n^.for_step^.int_val := 1;
         end;
         Exit(n);
       end;
@@ -307,8 +355,22 @@ begin
       begin
         lex_next(P^.L);
         n := node_new(P, N_INPUT);
+
+        // Syntaxe INPUT "Invite : ", VAR
+        if P^.L.tok = T_STR_L then
+        begin
+          n^.input_prompt := P^.L.str;
+          lex_next(P^.L);
+          if P^.L.tok in [T_COMMA, T_SEMI] then
+            lex_next(P^.L)
+          else
+            parse_error(P, 'Separateur "," ou ";" attendu apres le prompt INPUT');
+        end
+        else
+          n^.input_prompt := nil;
+
         if P^.L.tok <> T_ID then
-          parse_error(P, 'Variable attendue apres INPUT')
+          parse_error(P, 'Variable attendue pour INPUT')
         else
         begin
           n^.input_name := arena_strdup(P^.a, P^.L.id);
@@ -349,9 +411,13 @@ begin
     if P^.L.tok = T_EOF then
       Break;
 
-    if P^.L.tok = T_NUM_L then
+    if P^.L.tok in [T_INT_L, T_NUM_L] then
     begin
-      lineno := Round(P^.L.num);
+      if P^.L.tok = T_INT_L then
+        lineno := P^.L.int_val
+      else
+        lineno := Round(P^.L.num);
+
       lex_next(P^.L);
       currentIdx := Length(P^.stmts);
       if label_find(P^.labels, lineno) >= 0 then
@@ -381,7 +447,6 @@ begin
     end;
   end;
 
-  // Validation statique des cibles GOTO et GOSUB
   if P^.error = 0 then
   begin
     for i := 0 to High(P^.stmts) do

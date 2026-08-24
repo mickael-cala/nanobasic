@@ -1,0 +1,30 @@
+# Normalisation des fins de ligne pour les fichiers source Pascal
+*.pas text eol=lf
+*.pp text eol=lf
+*.inc text eol=lf
+
+# Fichiers de projet / scripts
+Makefile text eol=lf
+*.sh text eol=lf
+*.bat text eol=crlf
+
+# Fichiers texte génériques
+*.md text eol=lf
+*.txt text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Binaires
+*.exe binary
+*.o binary
+*.ppu binary
+*.a binary
+*.so binary
+*.dll binary
+*.dylib binary
+
+# Images etc.
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary

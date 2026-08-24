@@ -11,7 +11,8 @@ type
   TForFrame = record
     var_name: PChar;
     return_stmt_idx: Integer;
-    to_val, step_val: Double;
+    to_val: Value;
+    step_val: Value;
   end;
 
   TVM = record
@@ -22,7 +23,7 @@ type
     running: Integer;
     forstk: array[0..63] of TForFrame;
     forsp: Integer;
-    callstack: array[0..255] of Integer; // Pile d'appels GOSUB / RETURN
+    callstack: array[0..255] of Integer;
     callsp: Integer;
     call_depth: Integer;
   end;
@@ -48,28 +49,23 @@ begin
     vm.stmts[i] := stmts[i];
 end;
 
-function to_num(v: Value): Double; inline;
-begin
-  if v.t = T_NUM then
-    Result := v.n
-  else
-    Result := 0.0;
-end;
-
-function value_to_str(var vm: TVM; v: Value): PChar;
+function value_to_str(var vm: TVM; const v: Value): PChar;
 var
   buf: string;
 begin
-  if v.t = T_STR then
-  begin
-    if v.s = nil then Exit(arena_strdup(vm.sym^.a, ''))
-    else Exit(v.s);
-  end
+  case v.t of
+    T_STR:
+      begin
+        if v.s = nil then Exit(arena_strdup(vm.sym^.a, ''))
+        else Exit(v.s);
+      end;
+    T_INT:  buf := IntToStr(v.i);
+    T_NUM:  buf := FloatToStr(v.n);
+    T_BOOL: if v.b then buf := 'TRUE' else buf := 'FALSE';
   else
-  begin
-    buf := FloatToStr(v.n);
-    Result := arena_strdup(vm.sym^.a, PChar(buf));
+    buf := '';
   end;
+  Result := arena_strdup(vm.sym^.a, PChar(buf));
 end;
 
 function eval_node(var vm: TVM; n: PNode): Value;
@@ -92,21 +88,29 @@ begin
   end;
 
   case n^.k of
-    N_NUM: Result := MakeNum(n^.num);
-    N_STR: Result := MakeStr(n^.str);
+    N_INT:  Result := MakeInt(n^.int_val);
+    N_NUM:  Result := MakeNum(n^.num);
+    N_BOOL: Result := MakeBool(n^.bool_val);
+    N_STR:  Result := MakeStr(n^.str);
     N_VAR:
       begin
         p := sym_get(vm.sym^, n^.name);
         if p <> nil then
           Result := p^
         else
-          Result := MakeNum(0.0);
+          Result := MakeInt(0);
       end;
     N_UNOP:
-      if n^.un_op = '-' then
-        Result := MakeNum(-to_num(eval_node(vm, n^.un_child)))
-      else
-        Result := MakeNil;
+      begin
+        l := eval_node(vm, n^.un_child);
+        if n^.un_op = '-' then
+        begin
+          if l.t = T_INT then Result := MakeInt(-l.i)
+          else Result := MakeNum(-to_num(l));
+        end
+        else
+          Result := MakeNil;
+      end;
     N_BINOP:
       begin
         l := eval_node(vm, n^.bin_l);
@@ -131,38 +135,54 @@ begin
           begin
             c := StrComp(sL, sR);
             case n^.bin_op of
-              T_EQ:  Result := MakeNum(Ord(c = 0));
-              T_NEQ: Result := MakeNum(Ord(c <> 0));
-              T_LT:  Result := MakeNum(Ord(c < 0));
-              T_GT:  Result := MakeNum(Ord(c > 0));
-              T_LTE: Result := MakeNum(Ord(c <= 0));
-              T_GTE: Result := MakeNum(Ord(c >= 0));
+              T_EQ:  Result := MakeBool(c = 0);
+              T_NEQ: Result := MakeBool(c <> 0);
+              T_LT:  Result := MakeBool(c < 0);
+              T_GT:  Result := MakeBool(c > 0);
+              T_LTE: Result := MakeBool(c <= 0);
+              T_GTE: Result := MakeBool(c >= 0);
             else
               Result := MakeNil;
             end;
           end;
         end
+        else if (l.t = T_INT) and (r.t = T_INT) and (n^.bin_op in [T_PLUS, T_MINUS, T_STAR, T_EQ, T_NEQ, T_LT, T_GT, T_LTE, T_GTE]) then
+        begin
+          case n^.bin_op of
+            T_PLUS:  Result := MakeInt(l.i + r.i);
+            T_MINUS: Result := MakeInt(l.i - r.i);
+            T_STAR:  Result := MakeInt(l.i * r.i);
+            T_EQ:    Result := MakeBool(l.i = r.i);
+            T_NEQ:   Result := MakeBool(l.i <> r.i);
+            T_LT:    Result := MakeBool(l.i < r.i);
+            T_GT:    Result := MakeBool(l.i > r.i);
+            T_LTE:   Result := MakeBool(l.i <= r.i);
+            T_GTE:   Result := MakeBool(l.i >= r.i);
+          else
+            Result := MakeNil;
+          end;
+        end
         else
         begin
           case n^.bin_op of
-            T_PLUS:  Result := MakeNum(l.n + r.n);
-            T_MINUS: Result := MakeNum(l.n - r.n);
-            T_STAR:  Result := MakeNum(l.n * r.n);
+            T_PLUS:  Result := MakeNum(to_num(l) + to_num(r));
+            T_MINUS: Result := MakeNum(to_num(l) - to_num(r));
+            T_STAR:  Result := MakeNum(to_num(l) * to_num(r));
             T_SLASH:
-              if r.n = 0.0 then
+              if to_num(r) = 0.0 then
               begin
                 WriteLn(ErrOutput, 'Runtime Warning: Division par zero');
                 Result := MakeNum(0.0);
               end
               else
-                Result := MakeNum(l.n / r.n);
-            T_CARET: Result := MakeNum(Power(l.n, r.n));
-            T_EQ:    Result := MakeNum(Ord(l.n = r.n));
-            T_NEQ:   Result := MakeNum(Ord(l.n <> r.n));
-            T_LT:    Result := MakeNum(Ord(l.n < r.n));
-            T_GT:    Result := MakeNum(Ord(l.n > r.n));
-            T_LTE:   Result := MakeNum(Ord(l.n <= r.n));
-            T_GTE:   Result := MakeNum(Ord(l.n >= r.n));
+                Result := MakeNum(to_num(l) / to_num(r));
+            T_CARET: Result := MakeNum(Power(to_num(l), to_num(r)));
+            T_EQ:    Result := MakeBool(to_num(l) = to_num(r));
+            T_NEQ:   Result := MakeBool(to_num(l) <> to_num(r));
+            T_LT:    Result := MakeBool(to_num(l) < to_num(r));
+            T_GT:    Result := MakeBool(to_num(l) > to_num(r));
+            T_LTE:   Result := MakeBool(to_num(l) <= to_num(r));
+            T_GTE:   Result := MakeBool(to_num(l) >= to_num(r));
           else
             Result := MakeNil;
           end;
@@ -175,33 +195,40 @@ begin
   Dec(vm.call_depth);
 end;
 
+procedure print_value_direct(const v: Value);
+begin
+  case v.t of
+    T_STR:  if v.s <> nil then Write(v.s);
+    T_INT:  Write(v.i);
+    T_BOOL: if v.b then Write('TRUE') else Write('FALSE');
+    T_NUM:  Write(v.n:0:4);
+  else
+    Write('NIL');
+  end;
+end;
+
 procedure exec_node(var vm: TVM; n: PNode);
 var
   v: Value;
-  targetIdx, retPc: Integer;
+  targetIdx, retPc, i: Integer;
   p: PValue;
   fr: ^TForFrame;
-  nv: Double;
   done: Boolean;
   bufStr: string;
   code: Integer;
-  inputVal: Double;
+  inputInt: Int64;
+  inputNum: Double;
 begin
   if (n = nil) or (vm.running = 0) then Exit;
   case n^.k of
     N_PRINT:
       begin
-        if n^.print_expr <> nil then
+        for i := 0 to High(n^.print_args) do
         begin
-          v := eval_node(vm, n^.print_expr);
-          if v.t = T_STR then
-          begin
-            if v.s <> nil then Write(v.s);
-          end
-          else
-            Write(v.n:0:4);
+          v := eval_node(vm, n^.print_args[i].expr);
+          print_value_direct(v);
         end;
-        if n^.print_semi = 0 then
+        if not n^.print_trailing_sep then
           WriteLn;
       end;
 
@@ -214,7 +241,7 @@ begin
     N_IF:
       begin
         v := eval_node(vm, n^.if_cond);
-        if to_num(v) <> 0.0 then
+        if to_bool(v) then
           exec_node(vm, n^.if_thenb)
         else if n^.if_elseb <> nil then
           exec_node(vm, n^.if_elseb);
@@ -236,7 +263,7 @@ begin
       begin
         if vm.callsp >= High(vm.callstack) then
         begin
-          WriteLn(ErrOutput, 'Runtime Error: Debordement de la pile d''appels (Callstack Overflow)');
+          WriteLn(ErrOutput, 'Runtime Error: Callstack Overflow');
           vm.running := 0;
           Exit;
         end;
@@ -248,7 +275,7 @@ begin
         end
         else
         begin
-          vm.callstack[vm.callsp] := vm.pc + 1; // Adresse de retour après l'appel
+          vm.callstack[vm.callsp] := vm.pc + 1;
           Inc(vm.callsp);
           vm.pc := targetIdx - 1;
         end;
@@ -280,8 +307,8 @@ begin
         fr := @vm.forstk[vm.forsp];
         fr^.var_name := n^.for_var;
         fr^.return_stmt_idx := vm.pc + 1;
-        fr^.to_val := to_num(eval_node(vm, n^.for_to));
-        fr^.step_val := to_num(eval_node(vm, n^.for_step));
+        fr^.to_val := eval_node(vm, n^.for_to);
+        fr^.step_val := eval_node(vm, n^.for_step);
         Inc(vm.forsp);
       end;
 
@@ -301,29 +328,49 @@ begin
           vm.running := 0;
           Exit;
         end;
-        nv := p^.n + fr^.step_val;
-        if fr^.step_val >= 0 then
-          done := nv > fr^.to_val
-        else
-          done := nv < fr^.to_val;
-        if not done then
+
+        if (p^.t = T_INT) and (fr^.step_val.t = T_INT) and (fr^.to_val.t = T_INT) then
         begin
-          p^.n := nv;
-          vm.pc := fr^.return_stmt_idx - 1;
+          p^.i := p^.i + fr^.step_val.i;
+          if fr^.step_val.i >= 0 then
+            done := (p^.i > fr^.to_val.i)
+          else
+            done := (p^.i < fr^.to_val.i);
         end
+        else
+        begin
+          p^ := MakeNum(to_num(p^) + to_num(fr^.step_val));
+          if to_num(fr^.step_val) >= 0.0 then
+            done := (p^.n > to_num(fr^.to_val))
+          else
+            done := (p^.n < to_num(fr^.to_val));
+        end;
+
+        if not done then
+          vm.pc := fr^.return_stmt_idx - 1
         else
           Dec(vm.forsp);
       end;
 
     N_INPUT:
       begin
-        Write('? ');
-        ReadLn(bufStr);
-        Val(bufStr, inputVal, code);
-        if code = 0 then
-          sym_set(vm.sym^, n^.input_name, MakeNum(inputVal))
+        if n^.input_prompt <> nil then
+          Write(n^.input_prompt)
         else
-          sym_set(vm.sym^, n^.input_name, MakeStr(arena_strdup(vm.sym^.a, PChar(bufStr))));
+          Write('? ');
+
+        ReadLn(bufStr);
+        Val(bufStr, inputInt, code);
+        if code = 0 then
+          sym_set(vm.sym^, n^.input_name, MakeInt(inputInt))
+        else
+        begin
+          Val(bufStr, inputNum, code);
+          if code = 0 then
+            sym_set(vm.sym^, n^.input_name, MakeNum(inputNum))
+          else
+            sym_set(vm.sym^, n^.input_name, MakeStr(arena_strdup(vm.sym^.a, PChar(bufStr))));
+        end;
       end;
 
     N_END:

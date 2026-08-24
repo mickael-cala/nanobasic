@@ -13,6 +13,7 @@ type
     pos: Integer;
     tok: Tok;
     num: Double;
+    int_val: Int64;
     id: array[0..63] of Char;
     str: PChar;
     line: Integer;
@@ -39,6 +40,7 @@ var
   c: Char;
   start, len, code: Integer;
   numBuf: array[0..63] of Char;
+  isFloat: Boolean;
   pStr: PChar;
 begin
   while (L.src[L.pos] = ' ') or (L.src[L.pos] = #9) or (L.src[L.pos] = #13) do
@@ -62,10 +64,15 @@ begin
   if ((c >= '0') and (c <= '9')) or ((c = '.') and (L.src[L.pos+1] in ['0'..'9'])) then
   begin
     start := L.pos;
+    isFloat := (c = '.');
     while (L.src[L.pos] in ['0'..'9', '.']) do
+    begin
+      if L.src[L.pos] = '.' then isFloat := True;
       Inc(L.pos);
+    end;
     if (L.src[L.pos] in ['e', 'E']) and (L.src[L.pos+1] in ['+', '-', '0'..'9']) then
     begin
+      isFloat := True;
       Inc(L.pos);
       if L.src[L.pos] in ['+', '-'] then Inc(L.pos);
       while (L.src[L.pos] in ['0'..'9']) do Inc(L.pos);
@@ -74,9 +81,24 @@ begin
     if len >= sizeof(numBuf) then len := sizeof(numBuf) - 1;
     Move(L.src[start], numBuf[0], len);
     numBuf[len] := #0;
-    Val(numBuf, L.num, code);
-    if code <> 0 then L.num := 0.0;
-    L.tok := T_NUM_L;
+
+    if isFloat then
+    begin
+      Val(numBuf, L.num, code);
+      if code <> 0 then L.num := 0.0;
+      L.tok := T_NUM_L;
+    end
+    else
+    begin
+      Val(numBuf, L.int_val, code);
+      if code <> 0 then
+      begin
+        Val(numBuf, L.num, code);
+        L.tok := T_NUM_L;
+      end
+      else
+        L.tok := T_INT_L;
+    end;
     Exit;
   end;
 
@@ -99,7 +121,7 @@ begin
   if ((c >= 'A') and (c <= 'Z')) or ((c >= 'a') and (c <= 'z')) then
   begin
     start := L.pos;
-    while (L.src[L.pos] in ['A'..'Z', 'a'..'z', '0'..'9', '$', '_']) do
+    while (L.src[L.pos] in ['A'..'Z', 'a'..'z', '0'..'9', '$', '_', '%']) do
       Inc(L.pos);
     len := L.pos - start;
     if len >= sizeof(L.id) then len := sizeof(L.id) - 1;
@@ -135,6 +157,8 @@ begin
   Inc(L.pos);
   case c of
     ':': L.tok := T_COLON;
+    ';': L.tok := T_SEMI;
+    ',': L.tok := T_COMMA;
     '+': L.tok := T_PLUS;
     '-': L.tok := T_MINUS;
     '*': L.tok := T_STAR;
@@ -142,7 +166,6 @@ begin
     '^': L.tok := T_CARET;
     '(': L.tok := T_LPAREN;
     ')': L.tok := T_RPAREN;
-    ',': L.tok := T_COMMA;
     '=': L.tok := T_EQ;
     '<':
       if L.src[L.pos] = '=' then
