@@ -1,0 +1,23 @@
+PRINT "=== TEST GOSUB / RETURN ==="
+LET COMPTEUR = 0
+
+GOSUB 100
+PRINT "Apres premier appel, compteur = " : PRINT COMPTEUR
+
+GOSUB 100
+PRINT "Apres second appel, compteur = " : PRINT COMPTEUR
+
+GOTO 300
+
+100 REM --- SOUS-ROUTINE PRINCIPALE ---
+LET COMPTEUR = COMPTEUR + 1
+GOSUB 200
+RETURN
+
+200 REM --- SOUS-ROUTINE IMBRIQUEE ---
+PRINT " -> Sous-routine imbriquee executee"
+RETURN
+
+300 REM --- FIN DU PROGRAMME ---
+PRINT "=== FIN DES SOUS-ROUTINES ==="
+END
