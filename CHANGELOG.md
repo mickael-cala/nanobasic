@@ -33,6 +33,14 @@ Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/)
 - **Banc de validation** :
   - Suite de tests d'endurance `test_torture_master.bas` (15 scénarios limites validés à 100 %).
 
+### Corrigé
+- **Build** : Makefile remis à jour sur les unités réelles (`nanotypes`/`nanolexer`/`nanoparser`/`nanovm`), création automatique de `obj/`, nouvelles cibles `check`, `test` (stdin `/dev/null`) et `test-negative` (`test_bad.bas` doit être rejeté).
+- **Harnais Windows** : `run_tests_exe.bat` et `run_tests_bas.bat` rendus robustes (chemins relatifs `%~dp0`, résolution des unités via `-Fu`, exécution depuis la racine du dépôt, cas négatif `test_bad.bas` géré comme succès attendu, correction de la typo « BIANIRE »).
+- **Documentation** : commandes de compilation du README corrigées, retrait des annonces non implémentées (`CLEAR`, « contrôle strict des bornes »), section Tests réécrite, ajout de `docs/language.md` (spécification sémantique du langage).
+- **Cohérence** : `VERSION` aligné sur `1.1.0-dev`, doublons de scripts de test supprimés de `tests/`, `.gitignore` étendu aux artefacts de build et fichiers temporaires des tests, `.gitattributes`/`.editorconfig` corrigés (`makefile` en minuscules).
+
+> Note : la constante `NANOBASIC_VERSION` dans `src/nanobasic.pas` (affichée par `--version`) reste à aligner sur `1.1.0-dev` — modification volontairement laissée au code source.
+
 ### Modifié
 - **Standardisation syntaxique stricte** :
   - Parenthèses obligatoires pour l'ensemble des fonctions (`TIMER()`, `RND()`, fonctions FFI et utilisateur), supprimant toute collision avec les noms de variables locales ou globales.

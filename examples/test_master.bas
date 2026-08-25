@@ -182,10 +182,10 @@ GOSUB CheckResult
 ' ==================================================
 ' 8. TEMPS SYSTEME
 ' ==================================================
-LET TEST_NAME$ = "Temps (SLEEP 100 & TIMER)"
-LET T1 = TIMER
+LET TEST_NAME$ = "Temps (SLEEP 100 & TIMER())"
+LET T1 = TIMER()
 SLEEP 100
-LET T2 = TIMER
+LET T2 = TIMER()
 LET DIFF = T2 - T1
 LET EXPECTED$ = "TRUE"
 ' Tolérance de 10ms pour la précision de l'OS

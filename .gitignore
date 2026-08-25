@@ -4,3 +4,8 @@
 *.a
 *.bak
 *.tmp
+bin/
+obj/
+test_data.txt
+test_tmp.txt
+stream*.tmp

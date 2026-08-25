@@ -7,8 +7,8 @@
 ## Fonctionnalités Clés
 
 * **Typage polymorphe étendu :**
-  * Entiers 64 bits (`Int64`), flottants (`Double`), chaînes dynamiques (`PChar`), booléens (`Boolean`).
-  * Tableaux multidimensionnels de 1 à 3 dimensions via `DIM nom(d1, d2, d3)` avec contrôle strict des bornes.
+  * Entiers 64 bits (`Int64`), flottants (`Double`), chaînes (`PChar`, allouées dans l'arène), booléens (`Boolean`).
+  * Tableaux multidimensionnels de 1 à 3 dimensions via `DIM nom(d1, d2, d3)` (validation des dimensions ; contrôle des bornes en cours — cf. ROADMAP Phase 2.1).
 
 * **Structures de contrôle modernes & vintage :**
   * `FOR ... TO ... STEP ... NEXT [var]`
@@ -34,7 +34,7 @@
 * **Fonctions intégrées standard :**
   * Mathématiques : `ABS`, `INT`, `SQR`, `SIN`, `COS`, `TAN`, `RND`
   * Chaînes : `LEN`, `LEFT$`, `RIGHT$`, `MID$`, `CHR$`, `ASC`, `STR$`, `VAL`
-  * Temps & Système : `TIMER` (millisecondes) et instruction `SLEEP <ms>`
+  * Temps & Système : `TIMER()` (millisecondes) et instruction `SLEEP <ms>`
 
 * **Sécurité & Robustesse :**
   * Allocateur d'arène borné (plafond configurable, défaut : 16 Mo) pour zéro fragmentation.
@@ -43,7 +43,7 @@
 * **Diagnostics & CLI :**
   * Localisation précise des erreurs `[Ligne, Col]` avec affichage de la ligne source et curseur `^`.
   * Mode linter statique `--check` sans exécution.
-  * REPL interactif avec commandes `LOAD`, `SAVE`, `RUN`, `CHECK`, `LIST`, `DIR`, `CLEAR`, `CLS`, `HELP`.
+  * REPL interactif avec commandes `LOAD`, `SAVE`, `RUN`, `CHECK`, `LIST`, `DIR`, `NEW`, `CLS`, `HELP` (`CLEAR` prévu — cf. ROADMAP Phase 2.4).
 
 * **API d'embarquement (Host Interop & FFI) :**
   * Callbacks configurables `on_print` et `on_input`.
@@ -97,14 +97,23 @@ Le moteur est découpé en 5 unités spécialisées :
 
 ### Compilation
 
-```bash
-# Compilation du binaire principal (CLI & REPL)
-fpc -O2 nanobasic.pas
+Prérequis : **Free Pascal Compiler** 3.2.0 ou supérieur ; pour `make`, un GNU make avec shell POSIX (Linux, macOS, MSYS2).
 
-# Compilation des programmes d'intégration / exemples hôtes
-fpc -O2 test_host.pas
-fpc -O2 test_ffi.pas
+```bash
+# Depuis la racine du dépôt : compilation du binaire CLI (dans bin/)
+fpc -O2 -Mobjfpc src/nanobasic.pas -obin/nanobasic
+
+# Compilation des programmes d'intégration / exemples hôtes (depuis la racine)
+fpc -O2 -Fu../src tests/test_host.pas
+fpc -O2 -Fu../src tests/test_ffi.pas
+
+# Ou via le makefile (recommandé) : lint + tests inclus
+make
+make check        # lint statique de tous les scripts de test
+make test         # lint + exécution (stdin : /dev/null)
 ```
+
+Sous Windows, le harnais batch équivalent est fourni : `tests\run_tests_exe.bat` puis `tests\run_tests_bas.bat`.
 
 ---
 
@@ -135,7 +144,7 @@ nanobasic.exe
 ```basic
 PRINT "=== AUTOMATION SCRIPT ==="
 
-LET DEBUT = TIMER
+LET DEBUT = TIMER()
 
 DIM VALEURS(5)
 
@@ -155,7 +164,7 @@ WHILE C <= 3
   LET C = C + 1
 WEND
 
-LET FIN = TIMER
+LET FIN = TIMER()
 
 PRINT "Temps execution : "; FIN - DEBUT; " ms"
 
@@ -204,20 +213,28 @@ end.
 
 ---
 
-## Tests et Intégration Continue
+## Tests
 
-Deux harnais de test automatisés sont fournis :
+Deux harnais de test sont fournis (Windows : batch ; Unix : makefile) :
 
-### `run_tests_exe.bat`
+### `tests\run_tests_exe.bat`
 
-* Recompile l'ensemble des binaires en `-O2 -v0`
-* Exécute les tests de conformité hôte/FFI
+* Compile le CLI (`bin\nanobasic.exe`) puis les binaires hôte `test_host` / `test_ffi` (unités résolues via `-Fu`).
+* Exécute les tests de conformité hôte/FFI.
 
-### `run_tests_bas.bat`
+### `tests\run_tests_bas.bat`
 
-* Valide statiquement via `--check`
-* Exécute l'intégralité des scripts `test_*.bas`
-* Capture et valide les codes d'erreur
+* Valide statiquement via `--check` l'ensemble des scripts `examples\test_*.bas`.
+* Exécute chaque script (entrée redirigée vers `nul` pour éviter tout blocage sur `INPUT`).
+* Gère le cas négatif `test_bad.bas` : son rejet par le linter est un succès attendu.
+
+### Makefile (Unix / MSYS2)
+
+* `make check` : lint statique de tous les scripts de test.
+* `make test` : lint + exécution (stdin redirigé vers `/dev/null`).
+* `make test-negative` : vérifie que `test_bad.bas` est bien rejeté par le linter.
+
+> La mise en place d'une intégration continue (GitHub Actions) est prévue — cf. ROADMAP.
 
 ---
 
@@ -233,7 +250,7 @@ Pour les projets open-source.
 
 Disponible sur demande pour toute intégration propriétaire sans les obligations de l'AGPL.
 
-Consultez le fichier `LICENSE` pour plus de détails.
+Consultez le fichier `LICENSE.txt` pour plus de détails.
 
 ---
 

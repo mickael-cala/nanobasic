@@ -28,7 +28,7 @@ Pour l'instant, les modifications ne sont pas acceptées avant la stabilisation 
 1. **Forkez** le dépôt et créez une branche pour votre contribution.
 2. Assurez-vous que votre code suit le style de codage (voir ci-dessous).
 3. Si vous ajoutez une nouvelle fonctionnalité, incluez des tests (si possible).
-4. Vérifiez que tout compile avec `make` et que les tests existants passent.
+4. Vérifiez que tout compile et que les tests existants passent : `make check && make test` (Unix) ou `tests\run_tests_exe.bat` + `tests\run_tests_bas.bat` (Windows).
 5. Soumettez une Pull Request (PR) vers la branche `main`.
    - Décrivez clairement les changements apportés.
    - Référencez l'issue correspondante si elle existe.
@@ -59,7 +59,15 @@ end;
 ```
 
 ## Structure
-Une unité par fichier, nommée comme l'unité (ex: scanner.pas pour l'unité scanner).
+Les unités du moteur vivent dans `src/` — une unité par fichier, nommée d'après l'unité :
+
+* `nanotypes.pas` → unité `NanoTypes` (types, arène, AST, tokens, symboles, labels)
+* `nanolexer.pas` → unité `NanoLexer` (analyseur lexical)
+* `nanoparser.pas` → unité `NanoParser` (parseur descendant récursif + AST)
+* `nanovm.pas` → unité `NanoVM` (machine virtuelle Tree-Walk, FFI, VFS)
+* `nanobasic.pas` → programme principal (CLI & REPL)
+
+Les tests et harnais batch se trouvent dans `tests/`, les scripts BASIC dans `examples/`.
 
 ## Processus de revue
 Toute PR sera examinée par le mainteneur. Des commentaires ou demandes de modifications peuvent être formulés. Veuillez répondre rapidement pour accélérer le processus.

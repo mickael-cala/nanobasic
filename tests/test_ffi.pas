@@ -34,7 +34,7 @@ begin
   // --- 2. Le script d'automate (Clignotant) ---
   code_basic := 
     'PRINT "=== Demarrage cycle de test ==="' + #10 +
-    'LET DEBUT = TIMER' + #10 +
+    'LET DEBUT = TIMER()' + #10 +
     'FOR I = 1 TO 3' + #10 +
     '  PRINT "Cycle "; I' + #10 +
     '  CALL SET_RELAY(1, TRUE)' + #10 +
@@ -42,7 +42,7 @@ begin
     '  CALL SET_RELAY(1, FALSE)' + #10 +
     '  SLEEP 500' + #10 +
     'NEXT' + #10 +
-    'LET FIN = TIMER' + #10 +
+    'LET FIN = TIMER()' + #10 +
     'PRINT "Temps ecoule (ms) : "; FIN - DEBUT' + #10 +
     'PRINT "=== Cycle termine ==="';
 
