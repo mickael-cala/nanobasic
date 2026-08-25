@@ -2,6 +2,7 @@
 
 > ⚖️ **Clause de renonciation aux droits pécuniaires et à toute rémunération commerciale**
 > En soumettant une contribution (code, documentation, correction, etc.) à ce projet, le contributeur consent expressément et irrévocablement à céder gratuitement l'ensemble de ses droits patrimoniaux d'exploitation sur ladite contribution, pour toute la durée légale de protection des droits de propriété intellectuelle et dans le monde entier. En conséquence, le contributeur renonce explicitement et définitivement à toute réclamation de rémunération, redevance ou compensation financière liée à l'exploitation commerciale, directe ou indirecte, de ses modifications ou des œuvres dérivées en résultant.
+⚖️ **Fin Clause de renonciation aux droits pécuniaires et à toute rémunération commerciale**
 
 Merci de votre intérêt pour Nanobasic ! Voici quelques directives pour vous aider à contribuer efficacement.
 

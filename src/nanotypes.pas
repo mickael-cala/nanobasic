@@ -60,6 +60,7 @@ type
 
   PSymTab = ^TSymTab;
   TSymTab = record
+    parent: PSymTab;
     buckets: array[0..SYM_CAP-1] of PSym;
     a: PArena;
   end;
@@ -79,95 +80,40 @@ type
     T_DIM,
     T_INPUT, T_REM, T_END, T_NEWLINE,
     T_OPEN, T_CLOSE, T_OUTPUT, T_APPEND, T_AS, T_HASH,
-    // Extensions
-    T_SLEEP, T_CALL
+    T_SLEEP, T_CALL,
+    T_SUB, T_ENDSUB, T_FUNCTION, T_ENDFUNCTION,
+    T_SELECT, T_CASE, T_ENDSELECT // <--- Ajout SELECT CASE
   );
 
   NodeKind = (
     N_NUM, N_INT, N_STR, N_BOOL, N_VAR, N_CALL, N_ARRAY_GET, N_BINOP, N_UNOP,
     N_PRINT, N_LET, N_ARRAY_SET, N_DIM,
-    N_IF_SINGLE, N_IF_BLOCK,
+    N_IF_SINGLE, N_IF_BLOCK, N_IF_BRANCH,
     N_WHILE, N_REPEAT, N_BREAK,
     N_GOTO, N_GOSUB, N_RETURN,
     N_FOR, N_NEXT, N_INPUT, N_REM, N_END,
-    N_OPEN, N_CLOSE, N_PRINT_HASH, N_INPUT_HASH,
-    // Extensions
-    N_SLEEP, N_CALL_STMT
+    N_OPEN, N_CLOSE, N_PRINT_HASH, N_INPUT_HASH, N_PRINT_ARG,
+    N_SLEEP, N_CALL_STMT,
+    N_SUB_DEF, N_FUNC_DEF,
+    N_SELECT, N_CASE_BRANCH // <--- Noeuds AST SELECT CASE
   );
 
   PNode = ^TNode;
-
-  TPrintArg = record
-    expr: PNode;
-    sep: Tok;
-  end;
-
-  TIfBranch = record
-    cond: PNode;
-    body: array of PNode;
-  end;
 
   TNode = record
     k: NodeKind;
     source_line: Integer;
     source_col: Integer;
+    next: PNode;
     num: Double;
     int_val: Int64;
     bool_val: Boolean;
     str: PChar;
-    name: PChar;
-    bin_op: Tok;
-    bin_l: PNode;
-    bin_r: PNode;
-    un_op: Char;
-    un_tok: Tok;
-    un_child: PNode;
-    call_name: PChar;
-    call_args: array of PNode;
-    print_args: array of TPrintArg;
-    print_trailing_sep: Boolean;
-    let_name: PChar;
-    let_expr: PNode;
-    dim_name: PChar;
-    dim_indices: array of PNode;
-    arr_set_name: PChar;
-    arr_set_indices: array of PNode;
-    arr_set_expr: PNode;
-    arr_get_name: PChar;
-    arr_get_indices: array of PNode;
-
-    if_cond: PNode;
-    if_thenb: PNode;
-    if_elseb: PNode;
-    if_branches: array of TIfBranch;
-
-    while_cond: PNode;
-    while_body: array of PNode;
-    repeat_cond: PNode;
-    repeat_body: array of PNode;
-
-    goto_target_num: Integer;
-    goto_target_lbl: PChar;
-
-    for_var: PChar;
-    for_from: PNode;
-    for_to: PNode;
-    for_step: PNode;
-    next_var: PChar;
-    input_prompt: PChar;
-    input_name: PChar;
-
-    open_file_expr: PNode;
-    open_mode: Char;
-    open_channel: PNode;
-    close_channel: PNode;
-    print_hash_channel: PNode;
-    input_hash_channel: PNode;
-
-    // FFI et Temps
-    sleep_expr: PNode;
-    call_stmt_name: PChar;
-    call_stmt_args: array of PNode;
+    op: Tok;
+    flag: Boolean;
+    p1: PNode;
+    p2: PNode;
+    p3: PNode;
   end;
 
   TLabelEntry = record
@@ -195,8 +141,8 @@ function arena_alloc(a: PArena; n: SizeInt): Pointer;
 function arena_strdup(a: PArena; const s: PChar): PChar;
 procedure arena_free_all(a: PArena);
 
-function sym_get(var tab: TSymTab; const name: PChar): PValue;
-function sym_set(var tab: TSymTab; const name: PChar; v: Value): PValue;
+function sym_get(tab: PSymTab; const name: PChar): PValue;
+function sym_set(tab: PSymTab; const name: PChar; v: Value): PValue;
 
 procedure label_set_num(var map: TLabelMap; lineno, stmtIdx: Integer);
 procedure label_set_text(var map: TLabelMap; a: PArena; const name: PChar; stmtIdx: Integer);
@@ -252,7 +198,7 @@ begin
   n := (n + 7) and not 7;
   if a^.total_allocated + n > ARENA_MAX_BYTES then
   begin
-    WriteLn(ErrOutput, 'Runtime Error: Memory limit exceeded');
+    WriteLn(ErrOutput, 'Runtime Error: Plafond memoire depasse');
     Exit(nil);
   end;
   if (a^.current = nil) or (a^.current^.used + n > a^.current^.cap) then
@@ -300,24 +246,32 @@ begin
   Result := h;
 end;
 
-function sym_get(var tab: TSymTab; const name: PChar): PValue;
-var h: Cardinal; s: PSym;
+function sym_get(tab: PSymTab; const name: PChar): PValue;
+var h: Cardinal; s: PSym; currTab: PSymTab;
 begin
-  if (name = nil) or (name^ = #0) then Exit(nil);
-  h := hash(name) mod SYM_CAP; s := tab.buckets[h];
-  while s <> nil do
+  if (name = nil) or (name^ = #0) or (tab = nil) then Exit(nil);
+  currTab := tab;
+  
+  while currTab <> nil do
   begin
-    if (s^.name <> nil) and (StrIComp(s^.name, name) = 0) then Exit(@s^.val);
-    s := s^.next;
+    h := hash(name) mod SYM_CAP; s := currTab^.buckets[h];
+    while s <> nil do
+    begin
+      if (s^.name <> nil) and (StrIComp(s^.name, name) = 0) then Exit(@s^.val);
+      s := s^.next;
+    end;
+    currTab := currTab^.parent;
   end;
+  
   Result := nil;
 end;
 
-function sym_set(var tab: TSymTab; const name: PChar; v: Value): PValue;
+function sym_set(tab: PSymTab; const name: PChar; v: Value): PValue;
 var h: Cardinal; s: PSym;
 begin
-  if (name = nil) or (name^ = #0) then Exit(nil);
-  h := hash(name) mod SYM_CAP; s := tab.buckets[h];
+  if (name = nil) or (name^ = #0) or (tab = nil) then Exit(nil);
+  
+  h := hash(name) mod SYM_CAP; s := tab^.buckets[h];
   while s <> nil do
   begin
     if (s^.name <> nil) and (StrIComp(s^.name, name) = 0) then
@@ -326,9 +280,10 @@ begin
     end;
     s := s^.next;
   end;
-  s := arena_alloc(tab.a, sizeof(TSym)); if s = nil then Exit(nil);
-  s^.name := arena_strdup(tab.a, name); s^.val := v; s^.next := tab.buckets[h];
-  tab.buckets[h] := s; Result := @s^.val;
+  
+  s := arena_alloc(tab^.a, sizeof(TSym)); if s = nil then Exit(nil);
+  s^.name := arena_strdup(tab^.a, name); s^.val := v; s^.next := tab^.buckets[h];
+  tab^.buckets[h] := s; Result := @s^.val;
 end;
 
 procedure label_set_num(var map: TLabelMap; lineno, stmtIdx: Integer);

@@ -1,318 +1,255 @@
-program NanoBasic;
+program nanobasic;
 
 {$mode objfpc}{$H+}
 
 uses
-  SysUtils, Classes, NanoTypes, NanoLexer, NanoParser, NanoVM;
+  SysUtils, NanoTypes, NanoLexer, NanoParser, NanoVM;
 
 const
   NANOBASIC_VERSION = '1.0.0-beta2';
 
 type
-  TProgramLine = record
-    lineno: Integer;
-    text: string;
-  end;
-
-  TProgramBuffer = record
-    lines: array of TProgramLine;
-    filename: string;
+  TReplBuffer = record
+    lines: array of string;
+    linenos: array of Integer;
+    count: Integer;
+    current_filename: string;
   end;
 
 var
-  G_Arena: TArena;
-  G_Sym: TSymTab;
-  G_EnvInitialized: Boolean = False;
+  G_Repl: TReplBuffer;
 
-procedure InitGlobalEnv;
+procedure repl_init;
 begin
-  if not G_EnvInitialized then
-  begin
-    FillChar(G_Arena, sizeof(G_Arena), 0);
-    FillChar(G_Sym, sizeof(G_Sym), 0);
-    G_Sym.a := @G_Arena;
-    G_EnvInitialized := True;
-  end;
+  G_Repl.count := 0;
+  SetLength(G_Repl.lines, 0);
+  SetLength(G_Repl.linenos, 0);
+  G_Repl.current_filename := '';
 end;
 
-procedure ResetGlobalEnv;
+procedure repl_clear_program;
 begin
-  if G_EnvInitialized then
-  begin
-    arena_free_all(@G_Arena);
-    FillChar(G_Arena, sizeof(G_Arena), 0);
-    FillChar(G_Sym, sizeof(G_Sym), 0);
-    G_Sym.a := @G_Arena;
-  end;
+  G_Repl.count := 0;
+  SetLength(G_Repl.lines, 0);
+  SetLength(G_Repl.linenos, 0);
 end;
 
-function RunCodeBuffer(const src: PChar; keepEnv, checkOnly: Boolean): Integer;
-var
-  localArena: TArena;
-  localSym: TSymTab;
-  targetArena: PArena;
-  targetSym: PSymTab;
-  P: TParserr;
-  vm: TVM;
+procedure repl_insert_line(lineno: Integer; const code: string);
+var i, idx: Integer;
 begin
-  if (src = nil) or (src^ = #0) then Exit(0);
-
-  if keepEnv then
+  idx := -1;
+  for i := 0 to G_Repl.count - 1 do
   begin
-    InitGlobalEnv;
-    targetArena := @G_Arena;
-    targetSym := @G_Sym;
+    if G_Repl.linenos[i] = lineno then begin idx := i; Break; end
+    else if G_Repl.linenos[i] > lineno then begin idx := i; Break; end;
+  end;
+
+  if (idx >= 0) and (G_Repl.linenos[idx] = lineno) then
+  begin
+    if Trim(code) = '' then
+    begin
+      for i := idx to G_Repl.count - 2 do
+      begin
+        G_Repl.linenos[i] := G_Repl.linenos[i + 1];
+        G_Repl.lines[i] := G_Repl.lines[i + 1];
+      end;
+      Dec(G_Repl.count);
+      SetLength(G_Repl.linenos, G_Repl.count);
+      SetLength(G_Repl.lines, G_Repl.count);
+    end
+    else
+      G_Repl.lines[idx] := code;
   end
   else
   begin
-    FillChar(localArena, sizeof(localArena), 0);
-    FillChar(localSym, sizeof(localSym), 0);
-    localSym.a := @localArena;
-    targetArena := @localArena;
-    targetSym := @localSym;
+    if Trim(code) = '' then Exit;
+    Inc(G_Repl.count);
+    SetLength(G_Repl.linenos, G_Repl.count);
+    SetLength(G_Repl.lines, G_Repl.count);
+    if idx = -1 then idx := G_Repl.count - 1
+    else
+    begin
+      for i := G_Repl.count - 1 downto idx + 1 do
+      begin
+        G_Repl.linenos[i] := G_Repl.linenos[i - 1];
+        G_Repl.lines[i] := G_Repl.lines[i - 1];
+      end;
+    end;
+    G_Repl.linenos[idx] := lineno;
+    G_Repl.lines[idx] := code;
   end;
+end;
 
-  parser_init(P, targetArena, src);
+function repl_get_full_source: string;
+var i: Integer;
+begin
+  Result := '';
+  for i := 0 to G_Repl.count - 1 do
+  begin
+    if G_Repl.linenos[i] > 0 then
+      Result := Result + IntToStr(G_Repl.linenos[i]) + ' ' + G_Repl.lines[i] + #10
+    else
+      Result := Result + G_Repl.lines[i] + #10;
+  end;
+end;
+
+procedure repl_list;
+var i: Integer;
+begin
+  if G_Repl.count = 0 then begin WriteLn('Buffer vide.'); Exit; end;
+  for i := 0 to G_Repl.count - 1 do
+  begin
+    if G_Repl.linenos[i] > 0 then
+      WriteLn(Format('%5d %s', [G_Repl.linenos[i], G_Repl.lines[i]]))
+    else
+      WriteLn(G_Repl.lines[i]);
+  end;
+end;
+
+// ============================================================================
+// EXECUTION CENTRALE (Le pont entre le CLI et la VM)
+// ============================================================================
+function run_source(const src: string; checkOnly: Boolean; out numStmts: Integer): Integer;
+var
+  arena: TArena;
+  symTab: TSymTab;
+  P: TParserr;
+  vm: TVM;
+  srcP: PChar;
+begin
+  numStmts := 0;
+  FillChar(arena, sizeof(arena), 0);
+  FillChar(symTab, sizeof(symTab), 0);
+  symTab.a := @arena;
+
+  srcP := PChar(src);
+  parser_init(P, @arena, srcP);
   parse_program(@P);
 
   if P.error <> 0 then
   begin
     format_error_context(@P);
-    if not keepEnv then
-      arena_free_all(targetArena);
-    SetLength(P.stmts, 0);
-    SetLength(P.labels.entries, 0);
+    arena_free_all(@arena);
     Exit(1);
   end;
 
-  if checkOnly then
+  numStmts := Length(P.stmts);
+  if not checkOnly then
   begin
-    WriteLn('Syntaxe et cibles de saut validees avec succes (', Length(P.stmts), ' instructions).');
-    if not keepEnv then
-      arena_free_all(targetArena);
-    SetLength(P.stmts, 0);
-    SetLength(P.labels.entries, 0);
-    Exit(0);
+    vm_init(vm, @symTab, P.stmts, @P.labels);
+    
+    // --- AUTORISATION VFS STANDARD ---
+    // Cette ligne autorise l'interpreteur CLI a toucher aux vrais fichiers Windows/Linux
+    vm_enable_standard_vfs(vm);
+    
+    vm_run(vm);
   end;
 
-  vm_init(vm, targetSym, P.stmts, @P.labels);
-  vm_run(vm);
-
-  if not keepEnv then
-    arena_free_all(targetArena);
-
-  SetLength(P.stmts, 0);
-  SetLength(P.labels.entries, 0);
-  SetLength(vm.stmts, 0);
+  arena_free_all(@arena);
   Result := 0;
 end;
 
-procedure BufInsertOrUpdate(var buf: TProgramBuffer; lineno: Integer; const codeText: string);
+function run_file(const filename: string; checkOnly: Boolean): Integer;
 var
-  i, count, insertIdx: Integer;
-begin
-  count := Length(buf.lines);
-  insertIdx := -1;
-
-  for i := 0 to count - 1 do
-  begin
-    if buf.lines[i].lineno = lineno then
-    begin
-      if codeText = '' then
-      begin
-        for insertIdx := i to count - 2 do
-          buf.lines[insertIdx] := buf.lines[insertIdx + 1];
-        SetLength(buf.lines, count - 1);
-        Exit;
-      end
-      else
-      begin
-        buf.lines[i].text := codeText;
-        Exit;
-      end;
-    end
-    else if (buf.lines[i].lineno > lineno) and (insertIdx = -1) then
-      insertIdx := i;
-  end;
-
-  if codeText = '' then Exit;
-
-  SetLength(buf.lines, count + 1);
-  if insertIdx = -1 then
-    insertIdx := count
-  else
-  begin
-    for i := count downto insertIdx + 1 do
-      buf.lines[i] := buf.lines[i - 1];
-  end;
-
-  buf.lines[insertIdx].lineno := lineno;
-  buf.lines[insertIdx].text := codeText;
-end;
-
-procedure BufList(const buf: TProgramBuffer);
-var
-  i: Integer;
-begin
-  if Length(buf.lines) = 0 then
-  begin
-    WriteLn('(Aucun programme en memoire)');
-    Exit;
-  end;
-  for i := 0 to High(buf.lines) do
-    WriteLn(buf.lines[i].lineno, ' ', buf.lines[i].text);
-end;
-
-procedure BufClear(var buf: TProgramBuffer);
-begin
-  SetLength(buf.lines, 0);
-  buf.filename := '';
-end;
-
-function BufToSource(const buf: TProgramBuffer): string;
-var
-  i: Integer;
-begin
-  Result := '';
-  for i := 0 to High(buf.lines) do
-    Result := Result + IntToStr(buf.lines[i].lineno) + ' ' + buf.lines[i].text + LineEnding;
-end;
-
-procedure CmdDir;
-var
-  info: TSearchRec;
+  f: TextFile;
+  lineStr, fullSrc: string;
   count: Integer;
 begin
-  count := 0;
-  WriteLn('Fichiers .bas dans le repertoire courant :');
-  if FindFirst('*.bas', faAnyFile, info) = 0 then
+  if not FileExists(filename) then
   begin
-    repeat
-      if (info.Attr and faDirectory) = 0 then
-      begin
-        WriteLn('  ', info.Name, ' (', info.Size, ' octets)');
-        Inc(count);
-      end;
-    until FindNext(info) <> 0;
-    FindClose(info);
-  end;
-  if count = 0 then
-    WriteLn('  (Aucun fichier .bas trouve)');
-end;
-
-procedure CmdLoad(var buf: TProgramBuffer; const arg: string);
-var
-  fn, lineStr, trimLine: string;
-  f: TextFile;
-  spacePos, lineno, code: Integer;
-begin
-  fn := Trim(arg);
-  if fn = '' then
-  begin
-    WriteLn(ErrOutput, 'Erreur: nom de fichier requis (ex: LOAD test.bas)');
-    Exit;
-  end;
-  if ExtractFileExt(fn) = '' then fn := fn + '.bas';
-
-  if not FileExists(fn) then
-  begin
-    WriteLn(ErrOutput, 'Fichier introuvable: ', fn);
-    Exit;
+    WriteLn(ErrOutput, 'Erreur : Fichier introuvable : ', filename);
+    Exit(1);
   end;
 
-  AssignFile(f, fn);
-  {$I-}
+  AssignFile(f, filename);
   Reset(f);
-  {$I+}
-  if IOResult <> 0 then
-  begin
-    WriteLn(ErrOutput, 'Impossible d''ouvrir le fichier: ', fn);
-    Exit;
-  end;
-
-  BufClear(buf);
-  ResetGlobalEnv;
-  buf.filename := fn;
-
+  fullSrc := '';
   while not EOF(f) do
   begin
     ReadLn(f, lineStr);
-    trimLine := Trim(lineStr);
-    if trimLine = '' then Continue;
-
-    spacePos := Pos(' ', trimLine);
-    if spacePos > 1 then
-    begin
-      Val(Copy(trimLine, 1, spacePos - 1), lineno, code);
-      if code = 0 then
-        BufInsertOrUpdate(buf, lineno, Trim(Copy(trimLine, spacePos + 1, Length(trimLine))))
-      else
-        BufInsertOrUpdate(buf, (Length(buf.lines) + 1) * 10, trimLine);
-    end
-    else
-    begin
-      Val(trimLine, lineno, code);
-      if code = 0 then
-        BufInsertOrUpdate(buf, lineno, '')
-      else
-        BufInsertOrUpdate(buf, (Length(buf.lines) + 1) * 10, trimLine);
-    end;
+    fullSrc := fullSrc + lineStr + #10;
   end;
   CloseFile(f);
-  WriteLn('Charge : ', fn, ' (', Length(buf.lines), ' lignes)');
+
+  Result := run_source(fullSrc, checkOnly, count);
+  if (Result = 0) and checkOnly then
+    WriteLn('Syntaxe valide (', count, ' instructions statiques).');
 end;
 
-procedure CmdSave(var buf: TProgramBuffer; const arg: string);
+procedure repl_cmd_dir;
 var
-  fn: string;
-  f: TextFile;
-  i: Integer;
+  info: TSearchRec;
+  found: Boolean;
 begin
-  if Length(buf.lines) = 0 then
+  WriteLn('Fichiers .bas dans le repertoire courant :');
+  found := (FindFirst('*.bas', faAnyFile, info) = 0);
+  if not found then WriteLn('  (Aucun fichier .bas trouve)');
+  while found do
   begin
-    WriteLn(ErrOutput, 'Erreur: rien a sauvegarder (programme vide)');
-    Exit;
+    WriteLn('  ', info.Name, ' (', info.Size, ' octets)');
+    found := (FindNext(info) = 0);
   end;
+  FindClose(info);
+end;
 
-  fn := Trim(arg);
-  if fn = '' then
-  begin
-    if buf.filename <> '' then fn := buf.filename
-    else fn := 'untitled.bas';
-  end;
-  if ExtractFileExt(fn) = '' then fn := fn + '.bas';
+procedure repl_cmd_load(const param: string);
+var
+  f: TextFile;
+  fn, lineStr, codePart: string;
+  code, num, p: Integer;
+begin
+  fn := Trim(param);
+  if fn = '' then begin WriteLn('Usage : LOAD <fichier.bas>'); Exit; end;
+  if not FileExists(fn) then begin WriteLn('Erreur : Fichier introuvable : ', fn); Exit; end;
+
+  repl_clear_program;
+  G_Repl.current_filename := fn;
 
   AssignFile(f, fn);
-  {$I-}
-  Rewrite(f);
-  {$I+}
-  if IOResult <> 0 then
+  Reset(f);
+  while not EOF(f) do
   begin
-    WriteLn(ErrOutput, 'Impossible d''ecrire dans le fichier: ', fn);
-    Exit;
+    ReadLn(f, lineStr);
+    p := 1;
+    while (p <= Length(lineStr)) and (lineStr[p] in ['0'..'9']) do Inc(p);
+    if p > 1 then
+    begin
+      Val(Copy(lineStr, 1, p - 1), num, code);
+      codePart := Trim(Copy(lineStr, p, Length(lineStr)));
+      repl_insert_line(num, codePart);
+    end
+    else
+      repl_insert_line(-1, lineStr);
   end;
-
-  for i := 0 to High(buf.lines) do
-    WriteLn(f, buf.lines[i].lineno, ' ', buf.lines[i].text);
-
   CloseFile(f);
-  buf.filename := fn;
-  WriteLn('Sauvegarde reussie dans : ', fn);
+  WriteLn('Charge : ', fn, ' (', G_Repl.count, ' lignes)');
 end;
 
-procedure PrintCLIHelp;
+procedure repl_cmd_save(const param: string);
+var
+  f: TextFile;
+  fn: string;
+  i: Integer;
 begin
-  WriteLn('Usage: nanobasic [options] [fichier.bas]');
-  WriteLn('');
-  WriteLn('Options :');
-  WriteLn('  -c, --check    Valide la syntaxe et les sauts sans executer (mode Dry-Run / Linter)');
-  WriteLn('  -v, --version  Affiche la version de NanoBasic');
-  WriteLn('  -h, --help     Affiche cette aide');
-  WriteLn('');
-  WriteLn('Sans argument : Lance le terminal interactif REPL.');
+  fn := Trim(param);
+  if fn = '' then fn := G_Repl.current_filename;
+  if fn = '' then begin WriteLn('Usage : SAVE <fichier.bas>'); Exit; end;
+
+  AssignFile(f, fn);
+  Rewrite(f);
+  for i := 0 to G_Repl.count - 1 do
+  begin
+    if G_Repl.linenos[i] > 0 then
+      WriteLn(f, G_Repl.linenos[i], ' ', G_Repl.lines[i])
+    else
+      WriteLn(f, G_Repl.lines[i]);
+  end;
+  CloseFile(f);
+  G_Repl.current_filename := fn;
+  WriteLn('Sauvegarde dans : ', fn);
 end;
 
-procedure CmdReplHelp;
+procedure repl_print_help;
 begin
   WriteLn('=== NanoBasic v', NANOBASIC_VERSION, ' ===');
   WriteLn('Commandes REPL disponibles :');
@@ -333,20 +270,12 @@ begin
   WriteLn('  <instruction>      : Execution immediate (ex: PRINT 40 + 2)');
 end;
 
-procedure CmdCls;
-begin
-  Write(#27'[2J'#27'[H');
-end;
-
-procedure run_repl;
+procedure repl_main_loop;
 var
-  inputLine, cmd, arg, src: string;
-  progBuf: TProgramBuffer;
-  spacePos, lineno, code: Integer;
+  inputLine, cmd, param, upperLine, codePart: string;
+  p, num, code, dummy: Integer;
 begin
-  BufClear(progBuf);
-  InitGlobalEnv;
-
+  repl_init;
   WriteLn('NanoBasic v', NANOBASIC_VERSION, ' - Terminal Interactif');
   WriteLn('Tapez HELP pour la liste des commandes ou EXIT pour quitter.');
   WriteLn('------------------------------------------------------------');
@@ -358,154 +287,98 @@ begin
     inputLine := Trim(inputLine);
     if inputLine = '' then Continue;
 
-    spacePos := Pos(' ', inputLine);
-    if spacePos > 0 then
-    begin
-      cmd := UpperCase(Copy(inputLine, 1, spacePos - 1));
-      arg := Copy(inputLine, spacePos + 1, Length(inputLine));
-    end
-    else
-    begin
-      cmd := UpperCase(inputLine);
-      arg := '';
+    upperLine := UpperCase(inputLine);
+    if (upperLine = 'EXIT') or (upperLine = 'QUIT') then Break;
+
+    if upperLine = 'HELP' then begin repl_print_help; Continue; end;
+    if upperLine = 'CLS' then begin
+      {$IFDEF WINDOWS}
+      ExecuteProcess('cmd.exe', '/c cls');
+      {$ELSE}
+      Write(#27'[2J'#27'[H');
+      {$ENDIF}
+      Continue;
+    end;
+    if upperLine = 'DIR' then begin repl_cmd_dir; Continue; end;
+    if upperLine = 'LIST' then begin repl_list; Continue; end;
+    if upperLine = 'NEW' then begin repl_clear_program; WriteLn('Programme efface.'); Continue; end;
+    if upperLine = 'RUN' then begin
+      if G_Repl.count = 0 then WriteLn('Aucun programme en memoire.')
+      else run_source(repl_get_full_source, False, dummy);
+      Continue;
+    end;
+    if upperLine = 'CHECK' then begin
+      if G_Repl.count = 0 then WriteLn('Buffer vide.')
+      else run_source(repl_get_full_source, True, dummy);
+      Continue;
     end;
 
-    if (cmd = 'EXIT') or (cmd = 'QUIT') then
-      Break
-    else if cmd = 'HELP' then
-      CmdReplHelp
-    else if cmd = 'DIR' then
-      CmdDir
-    else if cmd = 'LOAD' then
-      CmdLoad(progBuf, arg)
-    else if cmd = 'SAVE' then
-      CmdSave(progBuf, arg)
-    else if cmd = 'LIST' then
-      BufList(progBuf)
-    else if cmd = 'CHECK' then
+    p := Pos(' ', inputLine);
+    if p > 0 then
     begin
-      if Length(progBuf.lines) = 0 then
-        WriteLn(ErrOutput, 'Erreur: Aucun programme en memoire')
-      else
-      begin
-        src := BufToSource(progBuf);
-        RunCodeBuffer(PChar(src), False, True);
-      end;
-    end
-    else if cmd = 'NEW' then
-    begin
-      BufClear(progBuf);
-      ResetGlobalEnv;
-      WriteLn('(Memoire et variables effacees)');
-    end
-    else if cmd = 'CLEAR' then
-    begin
-      ResetGlobalEnv;
-      WriteLn('(Variables reinitialisees)');
-    end
-    else if cmd = 'CLS' then
-      CmdCls
-    else if cmd = 'RUN' then
-    begin
-      if Length(progBuf.lines) = 0 then
-        WriteLn(ErrOutput, 'Erreur: Aucun programme en memoire (utilisez LOAD ou entrez des lignes)')
-      else
-      begin
-        src := BufToSource(progBuf);
-        RunCodeBuffer(PChar(src), False, False);
-      end;
+      cmd := UpperCase(Copy(inputLine, 1, p - 1));
+      param := Trim(Copy(inputLine, p + 1, Length(inputLine)));
+      if cmd = 'LOAD' then begin repl_cmd_load(param); Continue; end;
+      if cmd = 'SAVE' then begin repl_cmd_save(param); Continue; end;
     end
     else
     begin
-      Val(cmd, lineno, code);
-      if code = 0 then
-        BufInsertOrUpdate(progBuf, lineno, arg)
-      else
-      begin
-        src := inputLine + LineEnding;
-        RunCodeBuffer(PChar(src), True, False);
-      end;
+      if upperLine = 'SAVE' then begin repl_cmd_save(''); Continue; end;
     end;
+
+    p := 1;
+    while (p <= Length(inputLine)) and (inputLine[p] in ['0'..'9']) do Inc(p);
+    if p > 1 then
+    begin
+      Val(Copy(inputLine, 1, p - 1), num, code);
+      codePart := Trim(Copy(inputLine, p, Length(inputLine)));
+      repl_insert_line(num, codePart);
+      Continue;
+    end;
+
+    // Execution immediate
+    run_source(inputLine, False, dummy);
   end;
-
-  ResetGlobalEnv;
-  BufClear(progBuf);
 end;
 
 var
-  f: TextFile;
-  srcBuf, lineBuf, arg, targetFile: string;
-  checkOnly: Boolean;
   i: Integer;
+  filename: string;
+  checkOnly: Boolean;
 begin
-  if ParamCount < 1 then
+  if ParamCount = 0 then
   begin
-    run_repl;
-    Halt(0);
+    repl_main_loop;
+    Exit;
   end;
 
   checkOnly := False;
-  targetFile := '';
+  filename := '';
 
   for i := 1 to ParamCount do
   begin
-    arg := ParamStr(i);
-    if (arg = '-v') or (arg = '--version') then
+    if (ParamStr(i) = '--help') or (ParamStr(i) = '-h') then
+    begin
+      WriteLn('Usage: nanobasic [options] [fichier.bas]');
+      WriteLn('Options:');
+      WriteLn('  --check, -c    Verifie la syntaxe statique sans executer');
+      WriteLn('  --version, -v  Affiche la version');
+      WriteLn('  --help, -h     Affiche cette aide');
+      Halt(0);
+    end
+    else if (ParamStr(i) = '--version') or (ParamStr(i) = '-v') then
     begin
       WriteLn('NanoBasic v', NANOBASIC_VERSION);
-      WriteLn('Architecture: Free Pascal / AST Tree-Walk Engine');
       Halt(0);
     end
-    else if (arg = '-h') or (arg = '--help') then
-    begin
-      PrintCLIHelp;
-      Halt(0);
-    end
-    else if (arg = '-c') or (arg = '--check') then
-    begin
-      checkOnly := True;
-    end
+    else if (ParamStr(i) = '--check') or (ParamStr(i) = '-c') then
+      checkOnly := True
     else
-    begin
-      targetFile := arg;
-    end;
+      filename := ParamStr(i);
   end;
 
-  if targetFile = '' then
-  begin
-    WriteLn(ErrOutput, 'Erreur: Aucun fichier specifie.');
-    PrintCLIHelp;
-    Halt(1);
-  end;
-
-  if not FileExists(targetFile) then
-  begin
-    if FileExists(targetFile + '.bas') then
-      targetFile := targetFile + '.bas'
-    else
-    begin
-      WriteLn(ErrOutput, 'Fichier introuvable: ', targetFile);
-      Halt(1);
-    end;
-  end;
-
-  AssignFile(f, targetFile);
-  {$I-}
-  Reset(f);
-  {$I+}
-  if IOResult <> 0 then
-  begin
-    WriteLn(ErrOutput, 'Impossible de lire le fichier: ', targetFile);
-    Halt(1);
-  end;
-
-  srcBuf := '';
-  while not EOF(f) do
-  begin
-    ReadLn(f, lineBuf);
-    srcBuf := srcBuf + lineBuf + LineEnding;
-  end;
-  CloseFile(f);
-
-  Halt(RunCodeBuffer(PChar(srcBuf), False, checkOnly));
+  if filename <> '' then
+    Halt(run_file(filename, checkOnly))
+  else
+    repl_main_loop;
 end.

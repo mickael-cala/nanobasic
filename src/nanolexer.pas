@@ -85,7 +85,6 @@ begin
     Exit;
   end;
 
-  // Commentaires avec ' (apostrophe classique en BASIC)
   if c = '''' then
   begin
     while (L.src[L.pos] <> #0) and (L.src[L.pos] <> #10) do
@@ -94,7 +93,6 @@ begin
     Exit;
   end;
 
-  // Nombres
   if ((c >= '0') and (c <= '9')) or ((c = '.') and (L.src[L.pos+1] in ['0'..'9'])) then
   begin
     start := L.pos;
@@ -136,7 +134,6 @@ begin
     Exit;
   end;
 
-  // Chaînes littérales
   if c = '"' then
   begin
     lex_advance(L);
@@ -198,7 +195,6 @@ begin
     Exit;
   end;
 
-  // Identifiants & Mots-clés
   if ((c >= 'A') and (c <= 'Z')) or ((c >= 'a') and (c <= 'z')) then
   begin
     start := L.pos;
@@ -246,6 +242,13 @@ begin
     else if StrComp(L.id, 'AS') = 0 then L.tok := T_AS
     else if StrComp(L.id, 'SLEEP') = 0 then L.tok := T_SLEEP
     else if StrComp(L.id, 'CALL') = 0 then L.tok := T_CALL
+    else if StrComp(L.id, 'SUB') = 0 then L.tok := T_SUB
+    else if StrComp(L.id, 'ENDSUB') = 0 then L.tok := T_ENDSUB
+    else if StrComp(L.id, 'FUNCTION') = 0 then L.tok := T_FUNCTION
+    else if StrComp(L.id, 'ENDFUNCTION') = 0 then L.tok := T_ENDFUNCTION
+    else if StrComp(L.id, 'SELECT') = 0 then L.tok := T_SELECT     // <-- ICI
+    else if StrComp(L.id, 'CASE') = 0 then L.tok := T_CASE         // <-- ICI
+    else if StrComp(L.id, 'ENDSELECT') = 0 then L.tok := T_ENDSELECT // <-- ICI
     else if StrComp(L.id, 'REM') = 0 then
     begin
       while (L.src[L.pos] <> #0) and (L.src[L.pos] <> #10) do

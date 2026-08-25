@@ -237,6 +237,6 @@ Consultez le fichier `LICENSE` pour plus de détails.
 
 ---
 
-## Auteur
+## Auteur 
 
 **Mickaël Cala**
